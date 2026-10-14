@@ -22,7 +22,7 @@ public:
         m_pool.resize(size);
 
         // filled in reverse order so that 0 is at teh top of the "stack"
-        for (auto i { size - 1 }; i >= 0; --i)
+        for (int32_t i { static_cast<int32_t>(size) - 1 }; i >= 0; --i)
         {
 
             m_free_list.push_back(i);
