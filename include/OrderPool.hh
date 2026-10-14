@@ -46,8 +46,8 @@ public:
 
         new (&m_pool[next_free_index]) Order(std::forward<Args>(args)...);
 
-        m_pool[next_free_index] = -1;
-        m_pool[next_free_index] = -1;
+        m_pool[next_free_index].m_prev = -1;
+        m_pool[next_free_index].m_next = -1;
         return next_free_index;
 
     }
@@ -59,6 +59,7 @@ public:
     {
 
         m_free_list.push_back(free_index);
+
     }
 
     // turns a slot index into a reference to the order stored there.

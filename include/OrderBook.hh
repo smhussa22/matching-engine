@@ -5,6 +5,7 @@
 #include "Order.hh"
 
 #include <concepts>
+#include <algorithm>
 
 // class representing a limit order book
 // an orderbook is a data structure; a list of buy and sell orders for an asset
@@ -42,7 +43,7 @@ concept TradeListener = requires(T t, uint64_t id, int32_t price, uint32_t quant
     // (order id, reason)
     // the reason says why, e.g. a bad price, zero quantity, or a duplicate id
     t.on_order_rejected(id, reason);
-    
+
     // called whenever the total quantity waiting at a price level changes
     // (price, total quantity now waiting at that price, direction)
     // e.g. t.on_order_book_update(1000, 120, OrderDirection::Buy) means buyers at price 1000
@@ -86,7 +87,7 @@ public:
     // removes a resting order by its id
     // looks the order up, unlinks it from its queue, frees its pool slot, and
     // rejects with not found if the id doesnt exist or already filled.
-    void cancel_order();
+    void cancel_order(uint64_t order_id);
 
 private:
 
@@ -138,7 +139,7 @@ private:
     // updates the level's total volume. it does no matching.
     // submit vs add: submit is the whole process (validate, match, then rest
     // the leftover). add is just the last step, resting the leftover.
-    void add_order();
+    void add_order(const Order& order);
 
     // matches an incoming order against the opposite side of the book.
     // a buy looks at the lowest ask, a sell looks at the highest bid. while
@@ -153,7 +154,7 @@ private:
     // removes resting orders that fully fill. stops when the incoming order is
     // done or the level is empty.
     // match_order walks the levels, match_with_level works inside one level.
-    void match_with_level();
+    void match_with_level(Order& order, Level& level, int32_t price);
 
 };
 
@@ -161,11 +162,331 @@ template <TradeListener Listener>
 void OrderBook<Listener>::submit_order(Order order)
 {
 
+    if (order.m_quantity <= 0)
+    {
+
+        m_listener.on_order_rejected(order.m_id, OrderRejected::InvalidQuantity);
+        return;
+
+    }
+
+    if (order.m_price <= 0 || order.m_price > MAX_PRICE)
+    {
+
+        m_listener.on_order_rejected(order.m_id, OrderRejected::InvalidPrice);
+        return;
+
+    }
+
+    if (m_order_indices[order.m_id] != -1)
+    {
+
+        m_listener.on_order_rejected(order.m_id, OrderRejected::DuplicateId);
+        return;
+
+    }
+
+    match_order(order);
+    if (order.m_quantity > 0)
+    {
+
+        add_order(order);
+
+    }
+
+}
+
+template <TradeListener Listener>
+void OrderBook<Listener>::cancel_order(uint64_t order_id)
+{
+
+    auto order_to_cancel_index { m_order_indices[order_id] };
+    if (order_to_cancel_index == -1 || order_id >= m_order_indices.size())
+    {
+
+        m_listener.on_order_rejected(order_id, OrderRejected::NotFound);
+        return;
+
+    }
+
+    // look up the order in the pool
+    Order& order { m_order_pool.get(order_to_cancel_index) };
+    // get a REFERENCE to the order direction's level array, the one this oen is in
+    std::vector<Level>& book_direction
+    { 
+
+        [&]() -> std::vector<Level>& 
+        {
+
+            if (order.m_direction == OrderDirection::Buy)
+            {
+
+                return m_bids;
+
+            }
+            else
+            {
+                return m_asks;
+            }
+
+        }()
+
+    };
+
+    // since were removing this order, unaccount it from its level struct.
+    Level& level { book_direction[order.m_price] };
+    level.m_total_volume -= order.m_quantity;
+
+    // update listeners on order book update.
+    m_listener.on_order_book_update(order.m_price, level.m_total_volume, order.m_direction);
+
+    // unlink the order from its queue, and free up its pool slot
+    if (order.m_prev != -1)
+    {
+        m_order_pool.get(order.m_prev).m_next = order.m_next;
+    }
+    else
+    {
+        level.m_head = order.m_next;
+    }
+
+    if (order.m_next != -1)
+    {
+
+        m_order_pool.get(order.m_next).m_prev = order.m_prev;
+
+    }
+    else
+    {
+        level.m_tail = order.m_prev;
+    }
+
+    m_order_pool.deallocate(order_to_cancel_index);
+    m_order_indices[order_id] = -1;
+    m_listener.on_order_cancelled(order_id);
+
+}
+
+template <TradeListener Listener>
+void OrderBook<Listener>::add_order(const Order& order)
+{
+
+    int32_t order_to_add_index { m_order_pool.allocate(order.m_id, order.m_price, order.m_quantity, order.m_direction) };
+    if (order_to_add_index == -1)
+    {
+
+        m_listener.on_order_rejected(order.m_id, OrderRejected::FullPool);
+        return;
+
+    }
+
+    std::vector<Level>& book_direction
+    { 
+
+        [&]() -> std::vector<Level>& 
+        {
+
+            if (order.m_direction == OrderDirection::Buy)
+            {
+
+                return m_bids;
+
+            }
+            else
+            {
+                return m_asks;
+            }
+
+        }()
+
+    };
+
+    Level& level { book_direction[order.m_price] };
+    level.m_total_volume += order.m_quantity;
+    m_order_indices[order.m_id] = order_to_add_index;
+
+    if (level.m_head == -1)
+    {
+
+        level.m_head = order_to_add_index;
+        level.m_tail = order_to_add_index;
+
+    }
+    else
+    {
+
+        m_order_pool.get(level.m_tail).m_next = order_to_add_index;
+        m_order_pool.get(order_to_add_index).m_prev = level.m_tail;
+        level.m_tail = order_to_add_index;
+
+    }
+
+    if (order.m_direction == OrderDirection::Buy)
+    {
+
+        if (order.m_price > m_max_bid_price)
+        {
+
+            m_max_bid_price = order.m_price;
+
+        }
+
+    }
+    else
+    {
+
+        if (order.m_price < m_min_ask_price)
+        {
+
+            m_min_ask_price = order.m_price;
+        
+        }
+
+    }
+
+    m_listener.on_order_added(order.m_id, order.m_price, order.m_quantity, order.m_direction);
+    m_listener.on_order_book_update(order.m_price, level.m_total_volume, order.m_direction);
+
 }
 
 template <TradeListener Listener>
 void OrderBook<Listener>::match_order(Order& order)
 {
+
+    // we are trying to match a buy order with the opposite side of the book
+    // fill it by eating throuhg the cheapest available seller
+    // while the order still has quantity left to fill & 
+    // the cheapest ask price is low enough to be acceptable, trade at that price 
+    if(order.m_direction == OrderDirection::Buy)
+    {
+
+        while (order.m_quantity > 0 && order.m_price >= m_min_ask_price)
+        {
+
+            // if the minimum asking price is greater than the max price
+            // just stop trying to match
+            if (m_min_ask_price > static_cast<int32_t>(MAX_PRICE)) 
+            {
+            
+                break;
+            
+            }
+
+            Level& level { m_asks[m_min_ask_price] };
+
+            if(level.m_head == -1)
+            {
+
+                m_min_ask_price++;
+
+            }
+            else
+            {
+
+                match_with_level(order, level, m_min_ask_price);
+                if (level.m_head == -1)
+                {
+
+                    m_min_ask_price++;
+
+                }
+
+            }
+            
+        }
+
+    }
+    else
+    {
+
+        while (order.m_quantity > 0 && order.m_price <= m_max_bid_price)
+        {
+
+            if (m_max_bid_price < 0) 
+            {
+            
+                break;
+            
+            }
+
+            Level& level { m_bids[m_max_bid_price] };
+
+            if(level.m_head == -1)
+            {
+
+                m_max_bid_price--;
+
+            }
+            else
+            {
+
+                match_with_level(order, level, m_max_bid_price);
+                if (level.m_head == -1)
+                {
+
+                    m_max_bid_price--;
+
+                }
+
+            }
+
+        }
+
+    }
+
+}
+
+template <TradeListener Listener>
+void OrderBook<Listener>::match_with_level(Order& order, Level& level, int32_t price)
+{
+
+    // while the level to match this wit hstill has orders to match it with and
+    // the order still has a quantity left to fill
+    
+    uint32_t quantity_traded {};
+
+    while (level.m_head != -1 && order.m_quantity > 0)
+    {
+
+        int32_t curr_order_index { level.m_head };
+        Order& resting_order { m_order_pool.get(curr_order_index) };
+
+        // the quantity we will trade is the minimum between what this incoming
+        // order has to fill, or the resting orders available quantity
+        quantity_traded = std::min(order.m_quantity, resting_order.m_quantity);
+
+        order.m_quantity -= quantity_traded;
+        resting_order.m_quantity -= quantity_traded;
+        level.m_total_volume -= quantity_traded;
+
+        m_listener.on_trade(order.m_id, resting_order.m_id, price, quantity_traded);
+        m_listener.on_order_book_update(price, level.m_total_volume, resting_order.m_direction);
+
+        if (resting_order.m_quantity == 0)
+        {
+
+            int32_t next_index { resting_order.m_next };
+            level.m_head = next_index;
+
+            if (next_index != -1)
+            {
+
+                m_order_pool.get(next_index).m_prev = -1;
+
+            }
+            else
+            {
+
+                level.m_tail = -1;
+
+            }
+
+            m_order_indices[resting_order.m_id] = -1;
+            m_order_pool.deallocate(curr_order_index);
+
+        }
+
+    }
 
 }
 
