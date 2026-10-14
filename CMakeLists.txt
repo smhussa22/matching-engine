@@ -31,6 +31,23 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(maroof_net)
 
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.14.0
+    GIT_SHALLOW    TRUE
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
 # Linking maroof_net is what gives this target the `#include <maroof/net/...>` path.
 add_executable(matcher src/main.cc)
 target_link_libraries(matcher PRIVATE maroof_net)
+
+enable_testing()
+include(GoogleTest)
+
+add_executable(order_book_test tests/order_book_test.cc)
+target_include_directories(order_book_test PRIVATE include/)
+target_link_libraries(order_book_test PRIVATE GTest::gtest_main)
+gtest_discover_tests(order_book_test)

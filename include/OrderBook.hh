@@ -82,7 +82,7 @@ public:
     // already used etc), tries to match it against waiting orders, and if any
     // quantity is left over, rests it in the book.
     // a bad order is rejected here and never touches the book.
-    void submit_order(Order order);
+    void submit_order(Order order, OrderType order_type);
     
     // removes a resting order by its id
     // looks the order up, unlinks it from its queue, frees its pool slot, and
@@ -159,7 +159,7 @@ private:
 };
 
 template <TradeListener Listener>
-void OrderBook<Listener>::submit_order(Order order)
+void OrderBook<Listener>::submit_order(Order order, OrderType order_type)
 {
 
     if (order.m_quantity <= 0)
@@ -178,6 +178,14 @@ void OrderBook<Listener>::submit_order(Order order)
 
     }
 
+    if (order.m_id >= m_order_indices.size())
+    {
+
+        m_listener.on_order_rejected(order.m_id, OrderRejected::InvalidPrice);
+        return;
+
+    }
+
     if (m_order_indices[order.m_id] != -1)
     {
 
@@ -187,7 +195,7 @@ void OrderBook<Listener>::submit_order(Order order)
     }
 
     match_order(order);
-    if (order.m_quantity > 0)
+    if (order.m_quantity > 0 && order_type == OrderType::GTC)
     {
 
         add_order(order);

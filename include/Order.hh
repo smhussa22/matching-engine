@@ -56,7 +56,7 @@ struct alignas(32) Order
 
     // this struct is just data; the engine will decide things like id, and fill the other stuff properly.
     Order(uint64_t id, int32_t price, int32_t quantity, OrderDirection direction) 
-        : m_id {id}, m_price{price}, m_quantity{quantity}, m_direction{direction} {}
+        : m_id {id}, m_price{price}, m_quantity{static_cast<uint32_t>(quantity)}, m_direction{direction} {}
 
     ~Order() = default;
 
