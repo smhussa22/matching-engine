@@ -61,9 +61,7 @@ private:
 
 };
 
-inline OrderGenerator::OrderGenerator(size_t count, uint64_t seed, int32_t mid_price)
-    : m_rng         { seed }
-    , m_current_mid { mid_price }
+inline OrderGenerator::OrderGenerator(size_t count, uint64_t seed, int32_t mid_price) : m_rng { seed } , m_current_mid { mid_price }
 {
 
     m_commands.reserve(count);
@@ -104,15 +102,15 @@ inline NewOrderCmd OrderGenerator::make_new_order(uint64_t id)
 
     // price offset from the mid; small range keeps most orders near the top of book
     std::uniform_int_distribution<int32_t> price_offset { -10, 10 };
-    std::uniform_int_distribution<uint32_t> qty         { 1, 100 };
-    std::uniform_int_distribution<int>      side_coin   { 0, 1 };
-    std::uniform_int_distribution<int>      type_coin   { 0, 9 };
+    std::uniform_int_distribution<uint32_t> qty { 1, 100 };
+    std::uniform_int_distribution<int> side_coin { 0, 1 };
+    std::uniform_int_distribution<int> type_coin { 0, 9 };
 
     NewOrderCmd cmd;
-    cmd.order_id   = id;
-    cmd.price      = m_current_mid + price_offset(m_rng);
-    cmd.quantity   = qty(m_rng);
-    cmd.direction  = (side_coin(m_rng) == 0) ? OrderDirection::Buy : OrderDirection::Sell;
+    cmd.order_id = id;
+    cmd.price = m_current_mid + price_offset(m_rng);
+    cmd.quantity = qty(m_rng);
+    cmd.direction = (side_coin(m_rng) == 0) ? OrderDirection::Buy : OrderDirection::Sell;
     cmd.order_type = (type_coin(m_rng) == 0) ? OrderType::FAK : OrderType::GTC;  // ~10% FAK
 
     // remember GTC ids so cancels can target them; FAK never rests so there's nothing to cancel
