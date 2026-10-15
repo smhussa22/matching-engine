@@ -18,15 +18,16 @@
 
 // a concept, i.e. the functions that anything listening to a trade needs to define
 template <typename T>
-concept TradeListener = requires(T t, uint64_t id, int32_t price, uint32_t quantity, OrderDirection direction, OrderRejected reason)
+concept TradeListener = requires(T t, uint64_t id, int32_t price, uint32_t quantity, OrderDirection direction, OrderRejected reason, bool aggressor_filled, bool passive_filled)
 {
 
     // called when two orders are matched
-    // (incoming id, resting id, price, quantity)
+    // (incoming id, resting id, price, quantity, aggressor_filled, passive_filled)
     // carries both ids so both sides can be told via one of the concept functions 
+    // reports whether the aggressor or passive side are fully filled or not
     // e.g. t.on_trade(7, 3, 1000, 50) means incoming order 7 traded with resting order 3
     // for 50 units at price 1000
-    t.on_trade(id, id, price, quantity);
+    t.on_trade(id, id, price, quantity, aggressor_filled, passive_filled);
     
     // called when an order is added as a resting order into the order book
     // (order id, price, quantity, direction)
@@ -467,7 +468,7 @@ void OrderBook<Listener>::match_with_level(Order& order, Level& level, int32_t p
         resting_order.m_quantity -= quantity_traded;
         level.m_total_volume -= quantity_traded;
 
-        m_listener.on_trade(order.m_id, resting_order.m_id, price, quantity_traded);
+        m_listener.on_trade(order.m_id, resting_order.m_id, price, quantity_traded, order.m_quantity == 0, resting_order.m_quantity == 0);
         m_listener.on_order_book_update(price, level.m_total_volume, resting_order.m_direction);
 
         if (resting_order.m_quantity == 0)
