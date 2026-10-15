@@ -34,6 +34,8 @@ struct CancelOrderCmd
 
 };
 
+using Command = std::variant<NewOrderCmd, CancelOrderCmd>;
+
 // outbound message
 enum class EventType : uint8_t
 {

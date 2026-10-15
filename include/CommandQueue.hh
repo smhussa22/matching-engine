@@ -13,8 +13,6 @@ class CommandQueue
 {
 public:
 
-    using Command = std::variant<NewOrderCmd, CancelOrderCmd>;
-
     CommandQueue() = default;
     ~CommandQueue() = default;
 
@@ -68,7 +66,7 @@ inline void CommandQueue::push(Command cmd)
 
 }
 
-inline std::optional<CommandQueue::Command> CommandQueue::pop()
+inline std::optional<Command> CommandQueue::pop()
 {
 
     // grab the mutex
