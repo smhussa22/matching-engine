@@ -53,49 +53,55 @@ private:
 
 };
 
-using Command = std::variant<NewOrderCmd, CancelOrderCmd>;
-
-void CommandQueue::push(Command cmd)
+inline void CommandQueue::push(Command cmd)
 {
 
-    m_command_queue.push(cmd);
+    {
+
+        std::unique_lock lock { m_mutex };
+        m_command_queue.push(std::move(cmd));
+
+    }
+
+    // wake the matching thread so it can pop the command we just pushed
+    m_cv.notify_one();
 
 }
 
-std::optional<Command> CommandQueue::pop()
+inline std::optional<CommandQueue::Command> CommandQueue::pop()
 {
-    
+
     // grab the mutex
     std::unique_lock lock { m_mutex };
-    
+
     // thread sleeps until there is a command to process or the queue is shutting down
     m_cv.wait(lock, [this] { return !m_command_queue.empty() || m_shutdown; });
 
     // nullopt if the command queue is empty; checks which one woke it up
-    if (m_command_queue.empty()) 
+    if (m_command_queue.empty())
     {
 
         return std::nullopt;
 
     }
 
-    // grab the command and return it
-    // pop does not return the item
+    // grab the command and return it (std::queue::pop does not return the popped item, so we move it first)
     Command cmd { std::move(m_command_queue.front()) };
     m_command_queue.pop();
+    return cmd;
 
 }
 
-void CommandQueue::shut_down()
+inline void CommandQueue::shut_down()
 {
 
     {
 
         std::unique_lock lock { m_mutex };
         m_shutdown = true;
-    
+
     }
-    
+
     m_cv.notify_all();
 
 }
