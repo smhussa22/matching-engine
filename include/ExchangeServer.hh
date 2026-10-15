@@ -3,20 +3,25 @@
 
 #include <maroof/net/Endpoint.hh>
 #include <maroof/net/Connection.hh>
+#include <maroof/net/Server.hh>
 
 #include <thread>
 #include <unordered_map>
 #include <variant>
+#include <span>
+#include <cstddef>
+
+#include "OrderBook.hh"
+#include "ExchangeListener.hh"
+#include "CommandQueue.hh"
 
 // class for the exchange server
-// this is the class that bridges listeners with the order book; tiues the entire exchange together
-// it handles things like ..., ..., ..., etc.
-// it owns the network server, the order book, the listener, the command queue, and the matching thread
-// it handles things like accepting incoming connections from clients and decoding their packets into commands
-// it feeds these commands to our single matching thread
-// it also routes callbacks from the engine, like on_order_cancelled for example, to the right clients
-// the network callback path and the matching loop are both invoked very often and thus need to be pretty fast
-// most wokr needs to be done outside of the matching loop and network callback paths when possible for this reason    
+// this is the class that ties the exchange together.                                                                                                
+// owns the network server, the order book, the listener, the command queue, and the thread used to match orders.
+// network callbacks decode incoming packets into commands and push them onto the queue;                                                            
+// the matching thread drains the queue and dispatches to the book.
+// expensive work needs to stay off the network callbacks (e.g. on_receive) and the matching thraed
+
 class ExchangeServer
 {
 public:
@@ -51,6 +56,18 @@ private:
     // in other words, we track the Connection* for each client when they connect, and look it up by endpoint when they disconnect
     std::unordered_map<maroof::net::Endpoint, maroof::net::Connection*> m_endpoint_to_connection_map;
 
+    // the actual server that accepts incoming connections and dispatches the correct callback for a packet (e.g. on_trade)
+    maroof::net::Server m_server;
+    
+    // sits between the matching engine and the network; translates packets from events for the right clients
+    ExchangeListener m_listener;
+
+    // stores buy and sell orders when necessary
+    OrderBook<ExchangeListener> m_book;
+
+    // queue of commands sent by clients ready to be processed by the matching thread
+    CommandQueue m_queue;
+
     // the function that the matching thread
     void matching_loop();
 
@@ -59,6 +76,54 @@ private:
 
 };
 
+ExchangeServer::ExchangeServer(const maroof::net::Endpoint& bind_addr) : m_server { bind_addr }, m_listener { }, m_book { m_listener }, m_queue { }
+{
+
+    m_server.on_connect(
+        [this](maroof::net::Connection& conn) 
+        { 
+            
+            m_endpoint_to_connection_map[conn.peer()] = &conn; 
+            m_listener.register_connection(&conn);
+
+        }
+    );
+
+    m_server.on_disconnect(
+        [this](const maroof::net::Endpoint& endpoint)
+        {
+
+            auto it { m_endpoint_to_connection_map.find(endpoint) };
+            if (it == m_endpoint_to_connection_map.end())
+            {
+
+                return;
+            
+            }
+
+            m_listener.unregister_connection(it->second);
+            m_endpoint_to_connection_map.erase(it);
+
+        }
+    );
+
+    m_server.on_receive(
+        [this](maroof::net::Connection& conn, std::span<const std::byte> payload, std::uint8_t channel)
+        {
+
+            on_packet_received(conn, payload);
+
+        }
+    );
+
+}
+
+ExchangeServer::~ExchangeServer()
+{
+
+    stop();
+
+}
 void ExchangeServer::start()
 {
 
