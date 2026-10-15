@@ -70,7 +70,7 @@ private:
 // aggressor is just the incoming order; the one that arrived and triggered the match
 // passive is just the resting order
 // also sends each what priec they traded at and quantity that was filled
-void ExchangeListener::on_trade(uint64_t aggressor_id, uint64_t passive_id, int32_t price, uint32_t quantity, bool aggressor_filled, bool passive_filled)
+inline void ExchangeListener::on_trade(uint64_t aggressor_id, uint64_t passive_id, int32_t price, uint32_t quantity, bool aggressor_filled, bool passive_filled)
 {
 
     // define the events for each side
@@ -103,7 +103,7 @@ void ExchangeListener::on_trade(uint64_t aggressor_id, uint64_t passive_id, int3
 }
 
 // sends an ack event to the client that submitted an order, when that order results in resting orders
-void ExchangeListener::on_order_added(uint64_t id, int32_t price, uint32_t quantity, OrderDirection direction)
+inline void ExchangeListener::on_order_added(uint64_t id, int32_t price, uint32_t quantity, OrderDirection direction)
 {
 
     AckEvent event;
@@ -115,7 +115,7 @@ void ExchangeListener::on_order_added(uint64_t id, int32_t price, uint32_t quant
 }
     
 // sends a cancel confirmation to the client when their resting order is successfully cancelled
-void ExchangeListener::on_order_cancelled(uint64_t id)
+inline void ExchangeListener::on_order_cancelled(uint64_t id)
 {
 
     CancelEvent event;
@@ -128,7 +128,7 @@ void ExchangeListener::on_order_cancelled(uint64_t id)
 }
 
 // sends a rejected event and reason to the client that whose order was rejected by the matching engine
-void ExchangeListener::on_order_rejected(uint64_t id, OrderRejected reason)
+inline void ExchangeListener::on_order_rejected(uint64_t id, OrderRejected reason)
 {
 
     RejectEvent event;
@@ -142,7 +142,7 @@ void ExchangeListener::on_order_rejected(uint64_t id, OrderRejected reason)
 }
 
 // broadcasts a bookupdate event to the client whenever a price level's total volume changes
-void ExchangeListener::on_order_book_update(int32_t price, uint32_t quantity, OrderDirection direction)
+inline void ExchangeListener::on_order_book_update(int32_t price, uint32_t quantity, OrderDirection direction)
 {
 
     BookUpdateEvent event;
@@ -161,14 +161,14 @@ void ExchangeListener::on_order_book_update(int32_t price, uint32_t quantity, Or
 
 }
 
-void ExchangeListener::register_connection(maroof::net::Connection* conn)
+inline void ExchangeListener::register_connection(maroof::net::Connection* conn)
 {
 
     m_clients_set.insert(conn);
 
 }   
 
-void ExchangeListener::unregister_connection(maroof::net::Connection* conn)
+inline void ExchangeListener::unregister_connection(maroof::net::Connection* conn)
 {
 
     m_clients_set.erase(conn);
@@ -189,7 +189,7 @@ void ExchangeListener::unregister_connection(maroof::net::Connection* conn)
     }
 }    
 
-void ExchangeListener::register_order(uint64_t id, maroof::net::Connection* conn)
+inline void ExchangeListener::register_order(uint64_t id, maroof::net::Connection* conn)
 {
 
     m_order_to_client_map[id] = conn;
