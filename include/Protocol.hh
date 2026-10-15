@@ -42,6 +42,7 @@ enum class EventType : uint8_t
     Reject,     // order rejected
     TradeFill,  // all or part of order matched against a counterparty, holds fill price and qty
     BookUpdate, // broadcasted because order book was changed
+    Cancelled,  // the order was cancelled by the engine
 
 };
 
@@ -84,6 +85,14 @@ struct BookUpdateEvent
     int32_t price;
     uint32_t volume;
     OrderDirection direction;
+
+};
+
+struct CancelEvent
+{
+
+    EventType type { EventType::Cancelled };
+    uint64_t order_id;
 
 };
 
