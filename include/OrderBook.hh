@@ -6,6 +6,7 @@
 
 #include <concepts>
 #include <algorithm>
+#include <ostream>
 
 // class representing a limit order book
 // an orderbook is a data structure; a list of buy and sell orders for an asset
@@ -90,6 +91,26 @@ public:
     // rejects with not found if the id doesnt exist or already filled.
     void cancel_order(uint64_t order_id);
 
+    // writes a human-readable snapshot of the book to the given stream.
+    // asks are printed high to low on top, bids high to low below, so the spread sits in the middle.
+    void print(std::ostream& os) const
+    {
+        os << "--- ASKS ---\n";
+        for (int32_t p { static_cast<int32_t>(MAX_PRICE) }; p >= 0; --p)
+        {
+            if (m_asks[p].m_total_volume > 0)
+                os << p << "\t|" << m_asks[p].m_total_volume << '\n';
+        }
+
+        os << "--- BIDS ---\n";
+        for (int32_t p { static_cast<int32_t>(MAX_PRICE) }; p >= 0; --p)
+        {
+            if (m_bids[p].m_total_volume > 0)
+                os << p << "\t|" << m_bids[p].m_total_volume << '\n';
+        }
+        os << "------------\n";
+    }
+
 private:
 
     // the highest price the book can hold. there is one slot in the levels arrays per price.
@@ -158,6 +179,14 @@ private:
     void match_with_level(Order& order, Level& level, int32_t price);
 
 };
+
+// stream insertion lives outside the class so `std::cout << book` works naturally
+template <TradeListener Listener>
+std::ostream& operator<<(std::ostream& os, const OrderBook<Listener>& book)
+{
+    book.print(os);
+    return os;
+}
 
 template <TradeListener Listener>
 void OrderBook<Listener>::submit_order(Order order, OrderType order_type)

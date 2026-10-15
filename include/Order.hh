@@ -2,6 +2,9 @@
 #define ORDER_HH
 
 #include <cstdint>
+#include <format>
+#include <ostream>
+#include <string_view>
 
 // this simply is the direction; buy -> or sell <-.
 enum class OrderDirection
@@ -93,6 +96,82 @@ struct alignas(32) Order
     int32_t m_prev { -1 };
     int32_t m_next { -1 };
 
+};
+
+// printing helpers
+
+inline std::string_view to_string_view(OrderDirection d) noexcept
+{
+    switch (d)
+    {
+        case OrderDirection::Buy:  return "Buy";
+        case OrderDirection::Sell: return "Sell";
+    }
+    return "?";
+}
+
+inline std::string_view to_string_view(OrderType t) noexcept
+{
+    switch (t)
+    {
+        case OrderType::GTC: return "GTC";
+        case OrderType::FAK: return "FAK";
+    }
+    return "?";
+}
+
+inline std::string_view to_string_view(OrderRejected r) noexcept
+{
+    switch (r)
+    {
+        case OrderRejected::InvalidPrice:    return "InvalidPrice";
+        case OrderRejected::InvalidQuantity: return "InvalidQuantity";
+        case OrderRejected::DuplicateId:     return "DuplicateId";
+        case OrderRejected::FullPool:        return "FullPool";
+        case OrderRejected::NotFound:        return "NotFound";
+    }
+    return "?";
+}
+
+inline std::ostream& operator<<(std::ostream& os, OrderDirection d) { return os << to_string_view(d); }
+inline std::ostream& operator<<(std::ostream& os, OrderType      t) { return os << to_string_view(t); }
+inline std::ostream& operator<<(std::ostream& os, OrderRejected  r) { return os << to_string_view(r); }
+
+inline std::ostream& operator<<(std::ostream& os, const Order& o)
+{
+    return os << "Order[id=" << o.m_id
+              << " "         << o.m_direction
+              << " "         << o.m_quantity
+              << " @ "       << o.m_price
+              << "]";
+}
+
+template <> struct std::formatter<OrderDirection> : std::formatter<std::string_view>
+{
+    auto format(OrderDirection d, auto& ctx) const
+    { return std::formatter<std::string_view>::format(to_string_view(d), ctx); }
+};
+
+template <> struct std::formatter<OrderType> : std::formatter<std::string_view>
+{
+    auto format(OrderType t, auto& ctx) const
+    { return std::formatter<std::string_view>::format(to_string_view(t), ctx); }
+};
+
+template <> struct std::formatter<OrderRejected> : std::formatter<std::string_view>
+{
+    auto format(OrderRejected r, auto& ctx) const
+    { return std::formatter<std::string_view>::format(to_string_view(r), ctx); }
+};
+
+template <> struct std::formatter<Order> : std::formatter<std::string>
+{
+    auto format(const Order& o, auto& ctx) const
+    {
+        return std::formatter<std::string>::format(
+            std::format("Order[id={} {} {} @ {}]", o.m_id, to_string_view(o.m_direction), o.m_quantity, o.m_price),
+            ctx);
+    }
 };
 
 #endif // ORDER_HH
