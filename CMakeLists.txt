@@ -47,6 +47,8 @@ target_link_libraries(matcher PRIVATE maroof_net)
 enable_testing()
 include(GoogleTest)
 
+find_package(Threads REQUIRED)
+
 add_executable(OrderBook_test tests/OrderBook_test.cc)
 target_include_directories(OrderBook_test PRIVATE include/)
 target_link_libraries(OrderBook_test PRIVATE GTest::gtest_main)
@@ -56,3 +58,18 @@ add_executable(ExchangeListener_test tests/ExchangeListener_test.cc)
 target_include_directories(ExchangeListener_test PRIVATE include/)
 target_link_libraries(ExchangeListener_test PRIVATE maroof_net GTest::gtest_main)
 gtest_discover_tests(ExchangeListener_test)
+
+add_executable(OrderPool_test tests/OrderPool_test.cc)
+target_include_directories(OrderPool_test PRIVATE include/)
+target_link_libraries(OrderPool_test PRIVATE GTest::gtest_main)
+gtest_discover_tests(OrderPool_test)
+
+add_executable(CommandQueue_test tests/CommandQueue_test.cc)
+target_include_directories(CommandQueue_test PRIVATE include/)
+target_link_libraries(CommandQueue_test PRIVATE GTest::gtest_main Threads::Threads)
+gtest_discover_tests(CommandQueue_test)
+
+add_executable(ExchangeServer_test tests/ExchangeServer_test.cc)
+target_include_directories(ExchangeServer_test PRIVATE include/)
+target_link_libraries(ExchangeServer_test PRIVATE maroof_net GTest::gtest_main Threads::Threads)
+gtest_discover_tests(ExchangeServer_test)
