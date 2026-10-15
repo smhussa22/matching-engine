@@ -40,14 +40,15 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+find_package(Threads REQUIRED)
+
 # Linking maroof_net is what gives this target the `#include <maroof/net/...>` path.
 add_executable(matcher src/main.cc)
-target_link_libraries(matcher PRIVATE maroof_net)
+target_include_directories(matcher PRIVATE include/)
+target_link_libraries(matcher PRIVATE maroof_net Threads::Threads)
 
 enable_testing()
 include(GoogleTest)
-
-find_package(Threads REQUIRED)
 
 add_executable(OrderBook_test tests/OrderBook_test.cc)
 target_include_directories(OrderBook_test PRIVATE include/)

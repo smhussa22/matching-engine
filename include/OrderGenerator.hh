@@ -2,6 +2,7 @@
 #define ORDER_GENERATOR_HH
 
 #include <cstdint>
+#include <optional>
 #include <random>
 #include <vector>
 

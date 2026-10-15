@@ -4,6 +4,7 @@
 #include <thread>
 #include <vector>
 #include "CommandQueue.hh"
+#include "Protocol.hh"
 
 static NewOrderCmd make_new_order(uint64_t id)
 {
@@ -45,7 +46,7 @@ TEST(CommandQueueTest, ShutDownWakesEmptyPopWithNullopt)
 {
     // a thread blocked inside pop on an empty queue is woken by shut_down and returned nullopt
     CommandQueue queue;
-    std::optional<CommandQueue::Command> result;
+    std::optional<Command> result;
 
     std::thread consumer { [&] { result = queue.pop(); } };
 
@@ -79,7 +80,7 @@ TEST(CommandQueueTest, PushWakesWaitingConsumer)
 {
     // a thread blocked on an empty queue wakes up and receives the pushed command
     CommandQueue queue;
-    std::optional<CommandQueue::Command> result;
+    std::optional<Command> result;
 
     std::thread consumer { [&] { result = queue.pop(); } };
 
