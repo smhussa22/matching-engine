@@ -68,7 +68,8 @@ private:
     // queue of commands sent by clients ready to be processed by the matching thread
     CommandQueue m_queue;
 
-    // the function that the matching thread
+    // the function that the matching thread uses to match orders in the queue and dispatch a command to the book
+    // does so until shut down
     void matching_loop();
 
     // callback used by the server for each incoming packet to decode the type tag and push the cmd onto the queue
@@ -76,7 +77,7 @@ private:
 
 };
 
-ExchangeServer::ExchangeServer(const maroof::net::Endpoint& bind_addr) : m_server { bind_addr }, m_listener { }, m_book { m_listener }, m_queue { }
+inline ExchangeServer::ExchangeServer(const maroof::net::Endpoint& bind_addr) : m_server { bind_addr }, m_listener { }, m_book { m_listener }, m_queue { }
 {
 
     m_server.on_connect(
@@ -118,30 +119,122 @@ ExchangeServer::ExchangeServer(const maroof::net::Endpoint& bind_addr) : m_serve
 
 }
 
-ExchangeServer::~ExchangeServer()
+inline ExchangeServer::~ExchangeServer()
 {
 
     stop();
 
 }
-void ExchangeServer::start()
+
+inline void ExchangeServer::start()
 {
+
+    m_matching_thread = std::thread { [this] { matching_loop(); } };
+    m_server.run();
 
 }
 
-void ExchangeServer::stop()
+inline void ExchangeServer::stop()
 {
     
+    if (!m_matching_thread.joinable()) return;
+
+    // the thread was not started or finished its work and is ready to join
+    m_server.stop();
+    m_queue.shut_down();
+    m_matching_thread.join();
+
 }
 
-void ExchangeServer::matching_loop()
+inline void ExchangeServer::matching_loop()
 {
     
+    for(;;)
+    {
+
+        auto command { m_queue.pop() };
+        if (!command.has_value())
+        {
+
+            break;
+        
+        }
+
+        // visit the submit or cancel order function depending on whats in the variant
+        std::visit(
+            [this](auto& command)
+            {
+
+                using T = std::decay_t<decltype(command)>;
+
+                if constexpr (std::is_same_v<T, NewOrderCmd>)
+                {
+
+                    Order order { command.order_id, command.price, static_cast<int32_t>(command.quantity), command.direction };
+                    m_book.submit_order(order, command.order_type);
+
+                }
+                else if constexpr (std::is_same_v<T, CancelOrderCmd>)
+                {
+
+                    m_book.cancel_order(command.order_id);
+
+                }
+
+            }, *command
+
+        );
+
+    }
+
 }
 
-void ExchangeServer::on_packet_received(maroof::net::Connection& conn, std::span<const std::byte> payload)
+inline void ExchangeServer::on_packet_received(maroof::net::Connection& conn, std::span<const std::byte> payload)
 {
     
+    if (payload.empty())
+    {
+
+        return;
+    
+    }
+
+    // review the first byte to see if it is a new or cancel order command
+    auto payload_type { static_cast<CommandType>(payload[0]) };
+
+    // callback used by the server for each incoming packet to decode the type tag and push the cmd onto the queue
+    if (payload_type == CommandType::NewOrder)
+    {
+
+        if (payload.size() < sizeof(NewOrderCmd))
+        {
+
+            return;
+
+        }
+
+        NewOrderCmd new_order_cmd;
+        std::memcpy(&new_order_cmd, payload.data(), sizeof(new_order_cmd));
+        m_listener.register_order(new_order_cmd.order_id, &conn);
+        m_queue.push(new_order_cmd);
+
+    }
+    else if (payload_type == CommandType::CancelOrder) 
+    {
+
+        if (payload.size() < sizeof(CancelOrderCmd)) 
+        {
+
+            return;
+
+        }
+
+        CancelOrderCmd cancel_order_cmd;
+        std::memcpy(&cancel_order_cmd, payload.data(), sizeof(cancel_order_cmd));
+        m_queue.push(cancel_order_cmd);
+
+    }
+
 }
 
 #endif // EXCHANGE_SERVER_HH
