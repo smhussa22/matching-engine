@@ -51,3 +51,8 @@ add_executable(order_book_test tests/order_book_test.cc)
 target_include_directories(order_book_test PRIVATE include/)
 target_link_libraries(order_book_test PRIVATE GTest::gtest_main)
 gtest_discover_tests(order_book_test)
+
+add_executable(exchange_listener_test tests/exchange_listener_test.cc)
+target_include_directories(exchange_listener_test PRIVATE include/)
+target_link_libraries(exchange_listener_test PRIVATE maroof_net GTest::gtest_main)
+gtest_discover_tests(exchange_listener_test)
