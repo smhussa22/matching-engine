@@ -47,6 +47,18 @@ add_executable(matcher src/main.cc)
 target_include_directories(matcher PRIVATE include/)
 target_link_libraries(matcher PRIVATE maroof_net Threads::Threads)
 
+add_executable(server src/server_main.cc)
+target_include_directories(server PRIVATE include/)
+target_link_libraries(server PRIVATE maroof_net Threads::Threads)
+
+add_executable(synth_client src/synth_client.cc)
+target_include_directories(synth_client PRIVATE include/)
+target_link_libraries(synth_client PRIVATE maroof_net hdr_histogram_static)
+
+add_executable(engine_bench benchmarks/engine_bench.cc)
+target_include_directories(engine_bench PRIVATE include/)
+target_link_libraries(engine_bench PRIVATE maroof_net hdr_histogram_static)
+
 enable_testing()
 include(GoogleTest)
 
