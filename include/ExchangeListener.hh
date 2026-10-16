@@ -2,12 +2,16 @@
 #define EXCHANGE_LISTENER_HH
 
 #include <maroof/net/Connection.hh>
+#include <cstddef>
+#include <cstring>
+#include <mutex>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
-#include <span>
-#include <cstddef>
+#include <vector>
 
 #include "Order.hh"
+#include "OutboundQueue.hh"
 #include "Protocol.hh"
 
 // class that sits between the matching engine and the network
@@ -17,7 +21,10 @@ class ExchangeListener
 {
 public:
 
-    ExchangeListener() = default;
+    // outbound queue is the one-way channel back to the server thread for sending bytes.
+    // the listener never calls Connection::send_* directly to avoid racing with the
+    // server's internal retransmit loop. nullable so tests can skip the queue entirely.
+    explicit ExchangeListener(OutboundQueue* outbound = nullptr) : m_outbound { outbound } {}
     ~ExchangeListener() = default;
 
     ExchangeListener(const ExchangeListener&) = delete;
@@ -58,11 +65,29 @@ public:
 
 private:
 
+    // helper: serializes any trivially-copyable event into owned bytes and pushes to the outbound queue.
+    // the server thread will drain the queue and actually call send_* on the connection.
+    template <typename EventT>
+    void emit(maroof::net::Connection* conn, const EventT& event, OutboundQueue::Channel channel)
+    {
+        if (!m_outbound || !conn) return;
+        std::vector<std::byte> bytes(sizeof(EventT));
+        std::memcpy(bytes.data(), &event, sizeof(EventT));
+        m_outbound->push({ conn, std::move(bytes), channel });
+    }
+
+    // guards the two maps. the server thread (via register_* / unregister_connection) and the
+    // matching thread (via the five engine callbacks) both touch the state behind this mutex.
+    mutable std::mutex m_mutex;
+
     // order id -> client connection (the client that owns this order id)
     std::unordered_map<uint64_t, maroof::net::Connection*> m_order_to_client_map;
-    
+
     // set of all client connections used for broadcast
     std::unordered_set<maroof::net::Connection*> m_clients_set;
+
+    // where outbound events are posted for the server thread to actually transmit.
+    OutboundQueue* m_outbound;
 
 };
 
@@ -73,57 +98,59 @@ private:
 inline void ExchangeListener::on_trade(uint64_t aggressor_id, uint64_t passive_id, int32_t price, uint32_t quantity, bool aggressor_filled, bool passive_filled)
 {
 
-    // define the events for each side
-    TradeFillEvent aggressor_event;
-    aggressor_event.your_order_id = aggressor_id;
+    std::lock_guard<std::mutex> lock { m_mutex };
+
+    TradeFillEvent aggressor_event {};
+    aggressor_event.your_order_id         = aggressor_id;
     aggressor_event.counterparty_order_id = passive_id;
-    aggressor_event.price = price;
-    aggressor_event.quantity_filled = quantity;
+    aggressor_event.price                 = price;
+    aggressor_event.quantity_filled       = quantity;
 
-    TradeFillEvent passive_event;
-    passive_event.your_order_id = passive_id;
+    TradeFillEvent passive_event {};
+    passive_event.your_order_id         = passive_id;
     passive_event.counterparty_order_id = aggressor_id;
-    passive_event.price = price;
-    passive_event.quantity_filled = quantity;
+    passive_event.price                 = price;
+    passive_event.quantity_filled       = quantity;
 
-    // convert to std byte payloads for the send function
-    std::span<const std::byte> aggressor_payload { reinterpret_cast<const std::byte*>(&aggressor_event), sizeof(aggressor_event) };
-    std::span<const std::byte> passive_payload { reinterpret_cast<const std::byte*>(&passive_event), sizeof(passive_event) };
+    if (auto it = m_order_to_client_map.find(aggressor_id); it != m_order_to_client_map.end())
+        emit(it->second, aggressor_event, OutboundQueue::Channel::Reliable);
 
-    // send it to the aggressor, i.e., the connection whose order was the incoming order that triggered the match
-    m_order_to_client_map[aggressor_id]->send_reliable(aggressor_payload);
+    if (auto it = m_order_to_client_map.find(passive_id); it != m_order_to_client_map.end())
+        emit(it->second, passive_event, OutboundQueue::Channel::Reliable);
 
-    // send it to the passive side, i.e., the connection whose order was already resting in the book  
-    m_order_to_client_map[passive_id]->send_reliable(passive_payload);
-
-    // the orders are fully filled; remove these ids from the orer to client map.
     if (aggressor_filled) m_order_to_client_map.erase(aggressor_id);
-    if (passive_filled) m_order_to_client_map.erase(passive_id);
-    
+    if (passive_filled)   m_order_to_client_map.erase(passive_id);
+
 }
 
 // sends an ack event to the client that submitted an order, when that order results in resting orders
 inline void ExchangeListener::on_order_added(uint64_t id, int32_t price, uint32_t quantity, OrderDirection direction)
 {
 
-    AckEvent event;
-    event.order_id = id;
-    std::span<const std::byte> payload { reinterpret_cast<const std::byte*>(&event), sizeof(event) };
+    std::lock_guard<std::mutex> lock { m_mutex };
 
-    m_order_to_client_map[id]->send_reliable(payload);
+    AckEvent event {};
+    event.order_id = id;
+
+    if (auto it = m_order_to_client_map.find(id); it != m_order_to_client_map.end())
+        emit(it->second, event, OutboundQueue::Channel::Reliable);
 
 }
-    
+
 // sends a cancel confirmation to the client when their resting order is successfully cancelled
 inline void ExchangeListener::on_order_cancelled(uint64_t id)
 {
 
-    CancelEvent event;
-    event.order_id = id;
-    std::span<const std::byte> payload { reinterpret_cast<const std::byte*>(&event), sizeof(event) };
+    std::lock_guard<std::mutex> lock { m_mutex };
 
-    m_order_to_client_map[id]->send_reliable(payload);
-    m_order_to_client_map.erase(id);
+    CancelEvent event {};
+    event.order_id = id;
+
+    if (auto it = m_order_to_client_map.find(id); it != m_order_to_client_map.end())
+    {
+        emit(it->second, event, OutboundQueue::Channel::Reliable);
+        m_order_to_client_map.erase(it);
+    }
 
 }
 
@@ -131,13 +158,17 @@ inline void ExchangeListener::on_order_cancelled(uint64_t id)
 inline void ExchangeListener::on_order_rejected(uint64_t id, OrderRejected reason)
 {
 
-    RejectEvent event;
-    event.order_id = id;
-    event.reason = reason;
-    std::span<const std::byte> payload { reinterpret_cast<const std::byte*>(&event), sizeof(event) };
+    std::lock_guard<std::mutex> lock { m_mutex };
 
-    m_order_to_client_map[id]->send_reliable(payload);
-    m_order_to_client_map.erase(id);
+    RejectEvent event {};
+    event.order_id = id;
+    event.reason   = reason;
+
+    if (auto it = m_order_to_client_map.find(id); it != m_order_to_client_map.end())
+    {
+        emit(it->second, event, OutboundQueue::Channel::Reliable);
+        m_order_to_client_map.erase(it);
+    }
 
 }
 
@@ -145,32 +176,31 @@ inline void ExchangeListener::on_order_rejected(uint64_t id, OrderRejected reaso
 inline void ExchangeListener::on_order_book_update(int32_t price, uint32_t quantity, OrderDirection direction)
 {
 
-    BookUpdateEvent event;
-    event.price = price;
-    event.volume = quantity;
+    std::lock_guard<std::mutex> lock { m_mutex };
+
+    BookUpdateEvent event {};
+    event.price     = price;
+    event.volume    = quantity;
     event.direction = direction;
 
-    std::span<const std::byte> payload { reinterpret_cast<const std::byte*>(&event), sizeof(event) };
-
+    // one owned-bytes copy per client so the server thread can send each independently
     for (auto* conn : m_clients_set)
-    {
-
-        conn->send_sequenced(payload);
-
-    }
+        emit(conn, event, OutboundQueue::Channel::Sequenced);
 
 }
 
 inline void ExchangeListener::register_connection(maroof::net::Connection* conn)
 {
 
+    std::lock_guard<std::mutex> lock { m_mutex };
     m_clients_set.insert(conn);
 
-}   
+}
 
 inline void ExchangeListener::unregister_connection(maroof::net::Connection* conn)
 {
 
+    std::lock_guard<std::mutex> lock { m_mutex };
     m_clients_set.erase(conn);
 
     // todo: maybe find a better approach
@@ -192,6 +222,7 @@ inline void ExchangeListener::unregister_connection(maroof::net::Connection* con
 inline void ExchangeListener::register_order(uint64_t id, maroof::net::Connection* conn)
 {
 
+    std::lock_guard<std::mutex> lock { m_mutex };
     m_order_to_client_map[id] = conn;
 
 }

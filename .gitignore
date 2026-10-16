@@ -60,3 +60,13 @@ CTestCostData.txt
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ASan build + benchmark artifacts + throwaway debug scripts
+build-asan/
+*.hgrm
+run_asan.sh
+run_gdb.sh
+run_small.sh
+run_test.sh
+run_test2.sh
+run_test3.sh
