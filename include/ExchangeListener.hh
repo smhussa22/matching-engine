@@ -89,6 +89,10 @@ private:
     // where outbound events are posted for the server thread to actually transmit.
     OutboundQueue* m_outbound;
 
+    // monotonically increasing counter stamped onto every outbound event.
+    // both sides of a trade share the same seq — they represent one event.
+    uint64_t m_seq { 0 };
+
 };
 
 // sends a trade filled event to the aggressor and passive client. 
@@ -100,13 +104,17 @@ inline void ExchangeListener::on_trade(uint64_t aggressor_id, uint64_t passive_i
 
     std::lock_guard<std::mutex> lock { m_mutex };
 
+    const uint64_t seq { ++m_seq };
+
     TradeFillEvent aggressor_event {};
+    aggressor_event.seq                   = seq;
     aggressor_event.your_order_id         = aggressor_id;
     aggressor_event.counterparty_order_id = passive_id;
     aggressor_event.price                 = price;
     aggressor_event.quantity_filled       = quantity;
 
     TradeFillEvent passive_event {};
+    passive_event.seq                   = seq;
     passive_event.your_order_id         = passive_id;
     passive_event.counterparty_order_id = aggressor_id;
     passive_event.price                 = price;
@@ -130,6 +138,7 @@ inline void ExchangeListener::on_order_added(uint64_t id, int32_t price, uint32_
     std::lock_guard<std::mutex> lock { m_mutex };
 
     AckEvent event {};
+    event.seq      = ++m_seq;
     event.order_id = id;
 
     if (auto it = m_order_to_client_map.find(id); it != m_order_to_client_map.end())
@@ -144,6 +153,7 @@ inline void ExchangeListener::on_order_cancelled(uint64_t id)
     std::lock_guard<std::mutex> lock { m_mutex };
 
     CancelEvent event {};
+    event.seq      = ++m_seq;
     event.order_id = id;
 
     if (auto it = m_order_to_client_map.find(id); it != m_order_to_client_map.end())
@@ -161,6 +171,7 @@ inline void ExchangeListener::on_order_rejected(uint64_t id, OrderRejected reaso
     std::lock_guard<std::mutex> lock { m_mutex };
 
     RejectEvent event {};
+    event.seq      = ++m_seq;
     event.order_id = id;
     event.reason   = reason;
 
@@ -179,6 +190,7 @@ inline void ExchangeListener::on_order_book_update(int32_t price, uint32_t quant
     std::lock_guard<std::mutex> lock { m_mutex };
 
     BookUpdateEvent event {};
+    event.seq       = ++m_seq;
     event.price     = price;
     event.volume    = quantity;
     event.direction = direction;

@@ -54,6 +54,7 @@ struct AckEvent
 {
 
     EventType type { EventType::Ack };
+    uint64_t seq;
     uint64_t order_id;
 
 };
@@ -63,16 +64,19 @@ struct RejectEvent
 {
 
     EventType type { EventType::Reject };
+    uint64_t seq;
     uint64_t order_id;
     OrderRejected reason;
 
 };
 
 // sent privately to both sides of a trade when a match occurs
+// both sides carry the same seq — they represent one trade event
 struct TradeFillEvent
 {
 
     EventType type { EventType::TradeFill };
+    uint64_t seq;
     uint64_t your_order_id;
     uint64_t counterparty_order_id;
     int32_t price;
@@ -85,6 +89,7 @@ struct BookUpdateEvent
 {
 
     EventType type { EventType::BookUpdate };
+    uint64_t seq;
     int32_t price;
     uint32_t volume;
     OrderDirection direction;
@@ -95,6 +100,7 @@ struct CancelEvent
 {
 
     EventType type { EventType::Cancelled };
+    uint64_t seq;
     uint64_t order_id;
 
 };
